@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sync - Sistema Básico de Facturación e Inventario</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    margin: 20px auto;
+    max-width: 900px;
+    background: #f0f4f8;
+    color: #333;
+  }
+  h1, h2 {
+    color: #1a73e8;
+  }
+  section {
+    background: white;
+    padding: 15px 25px;
+    margin-bottom: 30px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgb(26 115 232 / 0.15);
+  }
+  label {
+    display: block;
+    margin: 10px 0 6px 0;
+    font-weight: 600;
+  }
+  input[type=text], input[type=number] {
+    width: 100%;
+    padding: 8px;
+    border-radius: 5px;
+    border: 1.5px solid #ccc;
+  }
+  button {
+    background-color: #1a73e8;
+    border: none;
+    color: white;
+    padding: 10px 18px;
+    margin-top: 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 700;
+  }
+  button:hover {
+    background-color: #155db6;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+  }
+  th, td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: center;
+  }
+  th {
+    background-color: #1a73e8;
+    color: white;
+  }
+  .input-small {
+    width: 70px;
+  }
+  .error {
+    color: red;
+    font-weight: 700;
+    margin-top: 8px;
+  }
+  .total {
+    font-weight: 700;
+    font-size: 1.3rem;
+    text-align: right;
+    margin-top: 15px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Sync - Facturación e Inventario Básico</h1>
+
+<section id="inventario">
+  <h2>Gestión de Inventario</h2>
+  <form id="formProducto">
+    <label for="nombreProducto">Nombre del producto</label>
+    <input type="text" id="nombreProducto" required />
+
+    <label for="precioProducto">Precio unitario (MXN)</label>
+    <input type="number" id="precioProducto" min="0" step="0.01" required />
+
+    <label for="stockProducto">Stock disponible</label>
+    <input type="number" id="stockProducto" min="0" step="1" required />
+
+    <button type="submit">Agregar producto</button>
+  </form>
+
+  <table id="tablaInventario">
+    <thead>
+      <tr>
+        <th>Producto</th>
+        <th>Precio (MXN)</th>
+        <th>Stock</th>
+        <th>Acciones</th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- Productos aparecerán aquí -->
+    </tbody>
+  </table>
+</section>
+
+<section id="facturacion">
+  <h2>Crear Factura</h2>
+  <form id="formFactura">
+    <label for="selectProducto">Selecciona un producto</label>
+    <select id="selectProducto" required>
+      <option value="" disabled selected>-- Seleccionar producto --</option>
+    </select>
+
+    <label for="cantidadProducto">Cantidad</label>
+    <input type="number" id="cantidadProducto" min="1" step="1" value="1" required />
+
+    <button type="submit">Agregar a factura</button>
+  </form>
+
+  <table id="tablaFactura">
+    <thead>
+      <tr>
+        <th>Producto</th>
+        <th>Cantidad</th>
+        <th>Precio unitario (MXN)</th>
+        <th>Subtotal (MXN)</th>
+        <th>Acciones</th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- Items de factura aquí -->
+    </tbody>
+  </table>
+
+  <div class="total" id="totalFactura">Total: $0.00</div>
+  <button id="btnGuardarFactura" disabled>Guardar Factura</button>
+</section>
+
+<section id="historialFacturas">
+  <h2>Historial de Facturas</h2>
+  <table id="tablaHistorial">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Productos</th>
+        <th>Total (MXN)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- Facturas guardadas -->
+    </tbody>
+  </table>
+</section>
+
+<script>
+  // Datos en localStorage keys
+  const KEY_PRODUCTOS = 'sync_productos';
+  const KEY_FACTURAS = 'sync_facturas';
+
+  // Cargar datos o crear arrays vacíos
+  let productos = JSON.parse(localStorage.getItem(KEY_PRODUCTOS)) || [];
+  let facturas = JSON.parse(localStorage.getItem(KEY_FACTURAS)) || [];
+
+  // Referencias DOM
+  const formProducto = document.getElementById('formProducto');
+  const tablaInventarioBody = document.querySelector('#tablaInventario tbody');
+  const selectProducto = document.getElementById('selectProducto');
+  const formFactura = document.getElementById('formFactura');
+  const tablaFacturaBody = document.querySelector('#tablaFactura tbody');
+  const totalFacturaDiv = document.getElementById('totalFactura');
+  const btnGuardarFactura = document.getElementById('btnGuardarFactura');
+  const tablaHistorialBody = document.querySelector('#tablaHistorial tbody');
+
+  // Factura actual en memoria
+  let facturaActual = [];
+
+  // Funciones para guardar y cargar productos
+  function guardarProductos() {
+    localStorage.setItem(KEY_PRODUCTOS, JSON.stringify(productos));
+  }
+
+  function guardarFacturas() {
+    localStorage.setItem(KEY_FACTURAS, JSON.stringify(facturas));
+  }
+
+  // Render inventario
+  function renderInventario() {
+    tablaInventarioBody.innerHTML = '';
+    selectProducto.innerHTML = '<option value="" disabled selected>-- Seleccionar producto --</option>';
+
+    productos.forEach((p, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${p.nombre}</td>
+        <td>$${p.precio.toFixed(2)}</td>
+        <td>${p.stock}</td>
+        <td>
+          <button data-index="${i}" class="btnEliminarProducto">Eliminar</button>
+        </td>
+      `;
+      tablaInventarioBody.appendChild(tr);
+
+      // Agregar al select solo si hay stock
+      if(p.stock > 0) {
+        const option = document.createElement('option');
+        option.value = i;
+        option.textContent = `${p.nombre} - $${p.precio.toFixed(2)} (Stock: ${p.stock})`;
+        selectProducto.appendChild(option);
+      }
+    });
+
+    // Añadir eventos a botones eliminar producto
+    document.querySelectorAll('.btnEliminarProducto').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const index = btn.getAttribute('data-index');
+        productos.splice(index, 1);
+        guardarProductos();
+        renderInventario();
+        renderFactura();
+      });
+    });
+  }
+
+  // Render factura actual
+  function renderFactura() {
+    tablaFacturaBody.innerHTML = '';
+    if(facturaActual.length === 0) {
+      tablaFacturaBody.innerHTML = `<tr><td colspan="5">No hay productos en la factura.</td></tr>`;
+      totalFacturaDiv.textContent = 'Total: $0.00';
+      btnGuardarFactura.disabled = true;
+      return;
+    }
+
+    let total = 0;
+    facturaActual.forEach((item, idx) => {
+      const subtotal = item.cantidad * productos[item.productoIndex].precio;
+      total += subtotal;
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${productos[item.productoIndex].nombre}</td>
+        <td>${item.cantidad}</td>
+        <td>$${productos[item.productoIndex].precio.toFixed(2)}</td>
+        <td>$${subtotal.toFixed(2)}</td>
+        <td><button data-idx="${idx}" class="btnEliminarFactura">Eliminar</button></td>
+      `;
+      tablaFacturaBody.appendChild(tr);
+    });
+    totalFacturaDiv.textContent = `Total: $${total.toFixed(2)}`;
+    btnGuardarFactura.disabled = false;
+
+    // Eventos eliminar item factura
+    document.querySelectorAll('.btnEliminarFactura').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = btn.getAttribute('data-idx');
+        facturaActual.splice(idx,1);
+        renderFactura();
+      });
+    });
+  }
+
+  // Render historial facturas
+  function renderHistorial() {
+    tablaHistorialBody.innerHTML = '';
+    if(facturas.length === 0) {
+      tablaHistorialBody.innerHTML = `<tr><td colspan="3">No hay facturas guardadas.</td></tr>`;
+      return;
+    }
+    facturas.forEach((factura, i) => {
+      // Mostrar lista de productos y cantidades en resumen
+      const listaProductos = factura.items.map(item => {
+        const p = productos[item.productoIndex];
+        return `${p ? p.nombre : 'Producto eliminado'} x${item.cantidad}`;
+      }).join(', ');
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${i+1}</td>
+        <td>${listaProductos}</td>
+        <td>$${factura.total.toFixed(2)}</td>
+      `;
+      tablaHistorialBody.appendChild(tr);
+    });
+  }
+
+  // Añadir producto al inventario
+  formProducto.addEventListener('submit', e => {
+    e.preventDefault();
+
+    const nombre = document.getElementById('nombreProducto').value.trim();
+    const precio = parseFloat(document.getElementById('precioProducto').value);
+    const stock = parseInt(document.getElementById('stockProducto').value);
+
+    if(!nombre || precio < 0 || stock < 0) {
+      alert('Por favor ingresa datos válidos.');
+      return;
+    }
+
+    productos.push({ nombre, precio, stock });
+    guardarProductos();
+    renderInventario();
+
+    formProducto.reset();
+  });
+
+  // Añadir producto a factura
+  formFactura.addEventListener('submit', e => {
+    e.preventDefault();
+
+    const productoIndex = parseInt(selectProducto.value);
+    const cantidad = parseInt(document.getElementById('cantidadProducto').value);
+
+    if(isNaN(productoIndex) || cantidad <= 0) {
+      alert('Selecciona producto válido y cantidad correcta.');
+      return;
+    }
+
+    const producto = productos[productoIndex];
+    if(cantidad > producto.stock) {
+      alert(`No hay suficiente stock. Disponible: ${producto.stock}`);
+      return;
+    }
+
+    // Si ya existe en factura, aumentar cantidad
+    const existeIndex = facturaActual.findIndex(item => item.productoIndex === productoIndex);
+    if(existeIndex >= 0) {
+      // Verificar stock total
+      if(facturaActual[existeIndex].cantidad + cantidad > producto.stock) {
+        alert(`No hay suficiente stock para esta cantidad.`);
+        return;
+      }
+      facturaActual[existeIndex].cantidad += cantidad;
+    } else {
+      facturaActual.push({ productoIndex, cantidad });
+    }
+
+    renderFactura();
+    formFactura.reset();
+  });
+
+  // Guardar factura (actualizar stock y limpiar factura actual)
+  btnGuardarFactura.addEventListener('click', () => {
+    if(facturaActual.length === 0) return;
+
+    // Calcular total
+    let total = 0;
+    facturaActual.forEach(item => {
+      total += item.cantidad * productos[item.productoIndex].precio;
+      // Reducir stock
+      productos[item.productoIndex].stock -= item.cantidad;
+    });
+
+    // Guardar factura
+    facturas.push({ items: facturaActual, total, fecha: new Date().toISOString() });
+    guardarFacturas();
+
+    // Actualizar productos
+    guardarProductos();
+    renderInventario();
+
+    // Limpiar factura
+    facturaActual = [];
+    renderFactura();
+
+    // Actualizar historial
+    renderHistorial();
+
+    alert('Factura guardada correctamente.');
+  });
+
+  // Render inicial
+  renderInventario();
+  renderFactura();
+  renderHistorial();
+
+</script>
+
+</body>
+</html>
